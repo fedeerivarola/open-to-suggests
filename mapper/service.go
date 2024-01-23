@@ -42,23 +42,26 @@ func processMapAndValidations(q reflect.Value, m map[string]interface{}) []error
 
 	for i := 0; i < sourceType.NumField(); i++ {
 		field := sourceType.Field(i)
+		// get tags 'json' and 'validate'
+		tagValidateValue := field.Tag.Get(tagValidate)
+		tagJsonValue := field.Tag.Get(tagJson)
+		// get key from tag json value
+		fieldJsonValue := strings.Split(tagJsonValue, ",")[0]
+		// get mapper value, if not exist then omit
 		tagMapperValue := field.Tag.Get(tagMapper)
-
 		if tagMapperValue == "" || tagMapperValue == "-" {
 			continue
 		}
-
+		// split mapper value on ',' for get "mapper config" in this case, the 'cast' param
 		mapperValues := strings.Split(tagMapperValue, ",")
+		tagMapperConfig := strings.Join(mapperValues[1:], ",")
+		// get the first value of mapper, and split on '.' for get nodes of json
 		nodes := strings.Split(mapperValues[0], ".")
-
+		// m is the map of key:value
 		current := m
 		for j, node := range nodes {
+			// if node leaf
 			if j == len(nodes)-1 {
-				tagValidateValue := field.Tag.Get(tagValidate)
-				tagJsonValue := field.Tag.Get(tagJson)
-				tagMapperConfig := strings.Join(mapperValues[1:], ",")
-				fieldJsonValue := strings.Split(tagJsonValue, ",")[0]
-
 				var errsNode []error
 
 				if field.Type.Kind() == reflect.Ptr {
@@ -67,10 +70,10 @@ func processMapAndValidations(q reflect.Value, m map[string]interface{}) []error
 					errsNode = mapNode(q.Field(i).Kind(), q.Field(i), node, tagMapperConfig, fieldJsonValue, tagValidateValue, current)
 				}
 
-				if errsNode != nil {
-					errs = append(errs, errsNode...)
-				}
+				errs = append(errs, errsNode...)
+
 			} else {
+				// if node is a father
 				if _, exist := current[node]; !exist {
 					current[node] = make(map[string]interface{})
 				}
