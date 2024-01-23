@@ -17,7 +17,6 @@ const errMappingField = "[field: %s ] error mapping field | [cause: %s ]"
 
 func Apply(input interface{}, model any) error {
 	output := make(map[string]interface{})
-
 	errs := processMapAndValidations(reflect.ValueOf(input), output)
 
 	if len(errs) > 0 {
@@ -25,7 +24,6 @@ func Apply(input interface{}, model any) error {
 	}
 
 	err := marshalling(output, model)
-
 	if err != nil {
 		return err
 	}
@@ -61,16 +59,23 @@ func processMapAndValidations(q reflect.Value, m map[string]interface{}) []error
 		for j, node := range nodes {
 			// if node leaf
 			if j == len(nodes)-1 {
-				var errsNode []error
+				var (
+					errsNode []error
+					k        reflect.Kind
+					value    reflect.Value
+				)
 
 				if field.Type.Kind() == reflect.Ptr {
-					errsNode = mapNode(q.Field(i).Elem().Kind(), q.Field(i).Elem(), node, tagMapperConfig, fieldJsonValue, tagValidateValue, current)
+					k = q.Field(i).Elem().Kind()
+					value = q.Field(i).Elem()
 				} else {
-					errsNode = mapNode(q.Field(i).Kind(), q.Field(i), node, tagMapperConfig, fieldJsonValue, tagValidateValue, current)
+					k = q.Field(i).Kind()
+					value = q.Field(i)
 				}
-
-				errs = append(errs, errsNode...)
-
+				errsNode = mapNode(k, value, node, tagMapperConfig, fieldJsonValue, tagValidateValue, current)
+				if errsNode != nil || len(errsNode) > 0 {
+					errs = append(errs, errsNode...)
+				}
 			} else {
 				// if node is a father
 				if _, exist := current[node]; !exist {
@@ -90,7 +95,7 @@ func mapNode(k reflect.Kind, fieldValue reflect.Value, nodeName, config, tagJson
 	switch k {
 	case reflect.Struct:
 		objMap := make(map[string]interface{})
-		errs = mapStruct(fieldValue, objMap)
+		errs = processMapAndValidations(fieldValue, objMap)
 
 		m[nodeName] = objMap
 	case reflect.Slice:
@@ -99,58 +104,105 @@ func mapNode(k reflect.Kind, fieldValue reflect.Value, nodeName, config, tagJson
 
 		m[nodeName] = array
 	default:
-		err := mapPrimitive(fieldValue, nodeName, config, tagJsonValue, tagValidateValue, m)
+		val, err := mapPrimitive(fieldValue, config, tagJsonValue, tagValidateValue)
 		if err != nil {
 			errs = append(errs, err)
+		} else if val != nil {
+			m[nodeName] = val
 		}
 	}
 
 	return errs
 }
 
-func mapPrimitive(value reflect.Value, keyName, configMap, jsonValue, validateValue string, m map[string]interface{}) error {
-	err := validateField(value, jsonValue, validateValue)
-
-	if err != nil {
-		return fmt.Errorf(errMappingField, jsonValue, err.Error())
+func mapPrimitive(value reflect.Value, configMap, jsonValue, validateValue string) (any, error) {
+	if !value.IsValid() || value.Kind() == reflect.String && value.IsZero() {
+		//omit
+		return nil, nil
 	}
 
-	if !value.IsValid() || value.Kind() == reflect.String && value.IsZero() {
+	err := validateField(value, jsonValue, validateValue)
+	if err != nil {
+		return nil, fmt.Errorf(errMappingField, jsonValue, err.Error())
+	}
+
+	if !strings.Contains(configMap, configCast) {
+		return value.Interface(), nil
+	} else {
+		valueCasted, errCast := castMapping(value, configMap)
+		if errCast != nil {
+			return nil, fmt.Errorf(errMappingField, jsonValue, errCast.Error())
+		}
+
+		return valueCasted, nil
+	}
+}
+
+func mapSliceNode(valueSlice reflect.Value, array []interface{}, arrayKeyName, configMapping, tagValidationValue string) []error {
+	var errs []error
+
+	if valueSlice.Len() == 0 {
 		return nil
 	}
 
-	m[keyName] = value.Interface()
-
-	if strings.Contains(configMap, configCast) {
-		valueCasted, errCast := castMapping(value, configMap)
-		if errCast != nil {
-			return fmt.Errorf(errMappingField, jsonValue, errCast.Error())
+	for j := 0; j < valueSlice.Len(); j++ {
+		var element reflect.Value
+		if valueSlice.Index(j).Kind() == reflect.Ptr {
+			element = valueSlice.Index(j).Elem()
+		} else {
+			element = valueSlice.Index(j)
 		}
 
-		m[keyName] = valueCasted
+		switch element.Kind() {
+		case reflect.Slice:
+			subArray := make([]interface{}, element.Len())
+
+			errValidations := mapSliceNode(element, subArray, arrayKeyName, configMapping, tagValidationValue)
+			if errValidations != nil {
+				errs = append(errs, errValidations...)
+			}
+
+			array[j] = subArray
+
+		case reflect.Struct:
+			objMap := make(map[string]interface{})
+
+			errValidations := processMapAndValidations(element, objMap)
+			if errValidations != nil {
+				errs = append(errs, errValidations...)
+			}
+
+			array[j] = objMap
+		default:
+			val, err := mapPrimitive(element, configMapping, arrayKeyName, tagValidationValue)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			if val != nil {
+				array[j] = val
+			}
+		}
 	}
 
-	return nil
-}
-
-func mapStruct(fieldValue reflect.Value, obj map[string]interface{}) []error {
-	errValidations := processMapAndValidations(fieldValue, obj)
-	return errValidations
+	return errs
 }
 
 func castMapping(value reflect.Value, config string) (any, error) {
-	var castValue string
+	var (
+		k         = value.Kind()
+		castValue string
+	)
+
 	fmt.Sscanf(config, "cast=%s", &castValue)
 
-	var k = value.Kind()
 	if k == reflect.Interface {
 		k = value.Elem().Kind()
 		value = value.Elem()
 	}
 
-	result, _ := SimpleCast(k, castValue, value)
+	result, err := SimpleCast(k, castValue, value)
 	if result != nil {
-		return result, nil
+		return result, err
 	}
 
 	if !value.IsValid() {
@@ -180,64 +232,6 @@ func validateField(f reflect.Value, fieldName, validationsTag string) error {
 	}
 
 	return nil
-}
-
-func mapSliceNode(valueSlice reflect.Value, array []interface{}, arrayKeyName, configMapping, tagValidationValue string) []error {
-	var errs []error
-
-	if valueSlice.Len() == 0 {
-		return nil
-	}
-
-	for j := 0; j < valueSlice.Len(); j++ {
-		var element reflect.Value
-		if valueSlice.Index(j).Kind() == reflect.Ptr {
-			element = valueSlice.Index(j).Elem()
-		} else {
-			element = valueSlice.Index(j)
-		}
-
-		if element.Kind() == reflect.Slice {
-			subArray := make([]interface{}, element.Len())
-
-			errValidations := mapSliceNode(element, subArray, arrayKeyName, configMapping, tagValidationValue)
-			if errValidations != nil {
-				errs = append(errs, errValidations...)
-			}
-
-			array[j] = subArray
-		} else if element.Kind() == reflect.Struct {
-			objMap := make(map[string]interface{})
-
-			errValidation := processMapAndValidations(element, objMap)
-			if errValidation != nil {
-				errs = append(errs, errValidation...)
-			}
-
-			array[j] = objMap
-		} else {
-			errValidation := validateField(element, arrayKeyName, tagValidationValue)
-
-			if errValidation != nil {
-				errs = append(errs, errValidation)
-			}
-
-			if !(element.Kind() == reflect.String && element.IsZero()) {
-				array[j] = element.Interface()
-			}
-
-			if strings.Contains(configMapping, configCast) {
-				valueCasted, errCast := castMapping(element, configMapping)
-				if errCast != nil {
-					errs = append(errs, errCast)
-				}
-
-				array[j] = valueCasted
-			}
-		}
-	}
-
-	return errs
 }
 
 func getFormatMsgErr(errs []error) error {
