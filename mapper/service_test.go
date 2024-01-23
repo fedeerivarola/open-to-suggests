@@ -103,6 +103,7 @@ func TestValidationRequired(t *testing.T) {
 
 func Test_Use_Example(t *testing.T) {
 	jsonA := buildJsonInput()
+	fmt.Printf("JSON A => %s", string(jsonA))
 	var source ModelA
 	json.Unmarshal(jsonA, &source)
 	//mapper use example

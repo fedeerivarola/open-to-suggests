@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 )
 
@@ -100,7 +99,10 @@ func mapNode(k reflect.Kind, fieldValue reflect.Value, nodeName, config, tagJson
 
 		m[nodeName] = array
 	default:
-		errs[0] = mapPrimitive(fieldValue, nodeName, config, tagJsonValue, tagValidateValue, m)
+		err := mapPrimitive(fieldValue, nodeName, config, tagJsonValue, tagValidateValue, m)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	return errs
@@ -113,11 +115,7 @@ func mapPrimitive(value reflect.Value, keyName, configMap, jsonValue, validateVa
 		return fmt.Errorf(errMappingField, jsonValue, err.Error())
 	}
 
-	if !value.IsValid() {
-		return nil
-	}
-
-	if value.Kind() == reflect.String && value.IsZero() {
+	if !value.IsValid() || value.Kind() == reflect.String && value.IsZero() {
 		return nil
 	}
 
@@ -142,44 +140,17 @@ func mapStruct(fieldValue reflect.Value, obj map[string]interface{}) []error {
 
 func castMapping(value reflect.Value, config string) (any, error) {
 	var castValue string
-	var k reflect.Kind
 	fmt.Sscanf(config, "cast=%s", &castValue)
-	if value.Kind() == reflect.Interface {
+
+	var k = value.Kind()
+	if k == reflect.Interface {
 		k = value.Elem().Kind()
 		value = value.Elem()
-	} else {
-		k = value.Kind()
 	}
 
-	if k == reflect.String {
-		if castValue == numberControl {
-			return strconv.Atoi(value.Interface().(string))
-		}
-		if castValue == boolControl {
-			return strconv.ParseBool(value.Interface().(string))
-		}
-		if castValue == "float" {
-			return strconv.ParseFloat(value.Interface().(string), 8)
-		}
-	} else if k == reflect.Int {
-		if castValue == boolControl {
-			return value.Interface().(int) != 0, nil
-		}
-		if castValue == "string" {
-			return strconv.Itoa(value.Interface().(int)), nil
-		}
-	} else if k == reflect.Float64 {
-		if castValue == "string" {
-			return strconv.FormatFloat(value.Interface().(float64), 'f', -1, 64), nil
-		}
-	} else if k == reflect.Bool {
-		if castValue == numberControl {
-			if value.Interface().(bool) == false {
-				return 0, nil
-			}
-
-			return 1, nil
-		}
+	result, _ := SimpleCast(k, castValue, value)
+	if result != nil {
+		return result, nil
 	}
 
 	if !value.IsValid() {

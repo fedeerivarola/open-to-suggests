@@ -15,6 +15,7 @@ const (
 	stringControl   = "string"
 	numberControl   = "number"
 	boolControl     = "bool"
+	floatControl    = "float"
 
 	errFieldRequired = "[%s] field is required"
 	errInvalidEmail  = "[%s] is not a valid email address"
