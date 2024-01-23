@@ -88,27 +88,16 @@ func mapNode(k reflect.Kind, fieldValue reflect.Value, nodeName, config, tagJson
 	switch k {
 	case reflect.Struct:
 		objMap := make(map[string]interface{})
-		errValidations := mapStruct(fieldValue, objMap)
-		if errValidations != nil {
-			errs = append(errs, errValidations...)
-		}
+		errs = mapStruct(fieldValue, objMap)
 
 		m[nodeName] = objMap
 	case reflect.Slice:
 		array := make([]interface{}, fieldValue.Len())
-
-		errValidations := mapSliceNode(fieldValue, array, nodeName, config, tagValidateValue)
-		if errValidations != nil {
-			errs = append(errs, errValidations...)
-		}
+		errs = mapSliceNode(fieldValue, array, nodeName, config, tagValidateValue)
 
 		m[nodeName] = array
 	default:
-		errValidation := mapPrimitive(fieldValue, nodeName, config, tagJsonValue, tagValidateValue, m)
-
-		if errValidation != nil {
-			errs = append(errs, errValidation)
-		}
+		errs[0] = mapPrimitive(fieldValue, nodeName, config, tagJsonValue, tagValidateValue, m)
 	}
 
 	return errs

@@ -103,18 +103,8 @@ func TestValidationRequired(t *testing.T) {
 
 func Test_Use_Example(t *testing.T) {
 	jsonA := buildJsonInput()
-	fmt.Printf("json input: %s\n", jsonA)
 	var source ModelA
 	json.Unmarshal(jsonA, &source)
-
-	fmt.Printf("ModelA.Field1:  %d\n", *source.Field1)
-	fmt.Printf("ModelA.Field2:  %d\n", *source.Field2)
-	fmt.Printf("ModelA.Field3:  %d\n", *source.Field3)
-	fmt.Printf("ModelA.Field4:  %s\n", *source.Field4)
-	fmt.Printf("ModelA.StructField1:  %v\n", *source.StructField1)
-	fmt.Printf("ModelA.ArrayField1:  %v\n", *source.ArrayField1)
-
-	fmt.Print("using mapper\n")
 	//mapper use example
 	var target ModelB
 	err := Apply(source, &target)
@@ -123,8 +113,6 @@ func Test_Use_Example(t *testing.T) {
 		_ = fmt.Errorf("error: %v", err)
 	}
 
-	fmt.Printf("ModelB result: %v\n", target)
-	fmt.Printf("parsing to new json B.. \n")
 	jsonBytes, _ := json.Marshal(target)
 
 	fmt.Printf("new JSON B => %s", string(jsonBytes))
